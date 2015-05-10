@@ -1,0 +1,542 @@
+/*
+ * File:   eai_project_12_25_14
+ * Author: dan situ
+ *
+ * Created on December 24, 2014, 5:41 PM
+ */
+
+/******************************************************************************
+ * Software License Agreement
+ *
+ * Copyright © 2011 Microchip Technology Inc.  All rights reserved.
+ * Microchip licenses to you the right to use, modify, copy and distribute
+ * Software only when embedded on a Microchip microcontroller or digital
+ * signal controller, which is integrated into your product or third party
+ * product (pursuant to the sublicense terms in the accompanying license
+ * agreement).
+ *
+ * You should refer to the license agreement accompanying this Software
+ * for additional information regarding your rights and obligations.
+ *
+ * SOFTWARE AND DOCUMENTATION ARE PROVIDED Ã¬AS ISÃ® WITHOUT WARRANTY OF ANY
+ * KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION, ANY WARRANTY
+ * OF MERCHANTABILITY, TITLE, NON-INFRINGEMENT AND FITNESS FOR A PARTICULAR
+ * PURPOSE. IN NO EVENT SHALL MICROCHIP OR ITS LICENSORS BE LIABLE OR
+ * OBLIGATED UNDER CONTRACT, NEGLIGENCE, STRICT LIABILITY, CONTRIBUTION,
+ * BREACH OF WARRANTY, OR OTHER LEGAL EQUITABLE THEORY ANY DIRECT OR INDIRECT
+ * DAMAGES OR EXPENSES INCLUDING BUT NOT LIMITED TO ANY INCIDENTAL, SPECIAL,
+ * INDIRECT, PUNITIVE OR CONSEQUENTIAL DAMAGES, LOST PROFITS OR LOST DATA,
+ * COST OF PROCUREMENT OF SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY
+ * CLAIMS BY THIRD PARTIES (INCLUDING BUT NOT LIMITED TO ANY DEFENSE THEREOF),
+ * OR OTHER SIMILAR COSTS.
+ *
+ *****************************************************************************/
+
+#if defined(__PIC24E__)
+#include <p24Exxxx.h>
+
+#elif defined (__PIC24F__)
+#include <p24Fxxxx.h>
+
+#elif defined(__PIC24H__)
+#include <p24Hxxxx.h>
+
+#elif defined(__dsPIC30F__)
+#include <p30Fxxxx.h>
+
+#elif defined (__dsPIC33E__)
+#include <p33Exxxx.h>
+
+#elif defined(__dsPIC33F__)
+#include <p33Fxxxx.h>
+
+#endif
+
+#include <stdio.h>
+#include <math.h>
+
+// PIC24FJ128GA204 Configuration Bit Settings
+
+// 'C' source line config statements
+
+#include <xc.h>
+
+// CONFIG4
+#pragma config DSWDTPS = DSWDTPS1F      // Deep Sleep Watchdog Timer Postscale Select bits (1:68719476736 (25.7 Days))
+#pragma config DSWDTOSC = LPRC          // DSWDT Reference Clock Select (DSWDT uses LPRC as reference clock)
+#pragma config DSBOREN = OFF            // Deep Sleep BOR Enable bit (DSBOR Disabled)
+#pragma config DSWDTEN = OFF            // Deep Sleep Watchdog Timer Enable (DSWDT Disabled)
+#pragma config DSSWEN = OFF             // DSEN Bit Enable (Deep Sleep operation is always disabled)
+#pragma config PLLDIV = PLL4X           // USB 96 MHz PLL Prescaler Select bits (4x PLL selected)
+#pragma config I2C1SEL = DISABLE        // Alternate I2C1 enable bit (I2C1 uses SCL1 and SDA1 pins)
+#pragma config IOL1WAY = ON             // PPS IOLOCK Set Only Once Enable bit (Once set, the IOLOCK bit cannot be cleared)
+
+// CONFIG3
+#pragma config WPFP = WPFP127           // Write Protection Flash Page Segment Boundary (Page 127 (0x1FC00))
+#pragma config SOSCSEL = ON             // SOSC Selection bits (SOSC circuit selected)
+#pragma config WDTWIN = PS25_0          // Window Mode Watchdog Timer Window Width Select (Watch Dog Timer Window Width is 25 percent)
+#pragma config PLLSS = PLL_PRI          // PLL Secondary Selection Configuration bit (PLL is fed by the Primary oscillator)
+#pragma config BOREN = OFF              // Brown-out Reset Enable (Brown-out Reset Disabled)
+#pragma config WPDIS = WPDIS            // Segment Write Protection Disable (Disabled)
+#pragma config WPCFG = WPCFGDIS         // Write Protect Configuration Page Select (Disabled)
+#pragma config WPEND = WPENDMEM         // Segment Write Protection End Page Select (Write Protect from WPFP to the last page of memory)
+
+// CONFIG2
+#pragma config POSCMD = XT              // Primary Oscillator Select (XT Oscillator Enabled)
+#pragma config WDTCLK = LPRC            // WDT Clock Source Select bits (WDT uses LPRC)
+#pragma config OSCIOFCN = OFF           // OSCO Pin Configuration (OSCO/CLKO/RA3 functions as CLKO (FOSC/2))
+#pragma config FCKSM = CSDCMD           // Clock Switching and Fail-Safe Clock Monitor Configuration bits (Clock switching and Fail-Safe Clock Monitor are disabled)
+#pragma config FNOSC = FRCDIV           // Initial Oscillator Select (Fast RC Oscillator with Postscaler (FRCDIV))
+#pragma config ALTCMPI = CxINC_RB       // Alternate Comparator Input bit (C1INC is on RB13, C2INC is on RB9 and C3INC is on RA0)
+#pragma config WDTCMX = LPRC            // WDT Clock Source Select bits (WDT always uses LPRC as its clock source)
+#pragma config IESO = ON                // Internal External Switchover (Enabled)
+
+// CONFIG1
+#pragma config WDTPS = PS32768          // Watchdog Timer Postscaler Select (1:32,768)
+#pragma config FWPSA = PR128            // WDT Prescaler Ratio Select (1:128)
+#pragma config WINDIS = OFF             // Windowed WDT Disable (Standard Watchdog Timer)
+#pragma config FWDTEN = OFF             // Watchdog Timer Enable (WDT disabled in hardware; SWDTEN bit disabled)
+#pragma config ICS = PGx2               // Emulator Pin Placement Select bits (Emulator functions are shared with PGEC2/PGED2)
+#pragma config LPCFG = OFF              // Low power regulator control (Disabled - regardless of RETEN)
+#pragma config GWRP = OFF               // General Segment Write Protect (Write to program memory allowed)
+#pragma config GCP = OFF                // General Segment Code Protect (Code protection is disabled)
+#pragma config JTAGEN = OFF             // JTAG Port Enable (Disabled)
+
+//reference to spi2 ss input
+#define SPI2_SS_TRIS      TRISCbits.TRISC6
+#define SPI2_SS_PORT      PORTCbits.RC6
+
+typedef int bool;
+#define true    1
+#define false   0
+
+typedef int spiCommand;
+#define SET_RTC_YEAR        0
+#define SET_RTC_MONTH       1
+#define SET_RTC_DAY         2
+#define SET_RTC_HOUR        3
+#define SET_RTC_MINUTE      4
+#define SET_RTC_SECOND      5
+#define PREPARE_TS          6
+#define GET_RTC_YEAR        7
+#define GET_RTC_MONTH       8
+#define GET_RTC_DAY         9
+#define GET_RTC_HOUR        10
+#define GET_RTC_MINUTE      11
+#define GET_RTC_SECOND      12
+#define GET_ADC_DATA0       13
+#define GET_ADC_DATA1       14
+#define GET_ADC_DATA2       15
+#define GET_ADC_DATA3       16
+#define GET_ADC_DATA4       17
+#define GET_ADC_DATA5       18
+#define GET_ADC_DATA6       19
+
+//data used for spi communication
+int spiBufRL, spiBufRH;
+
+/*
+ *  0 - year
+ *  1 - month
+ *  2 - day
+ *  3 - hour
+ *  4 - minute
+ *  5 - second
+ *  6 - adc channel 0 data 12bit
+ *  7 - adc channel 1 data 12bit
+ *  8 - adc channel 2 data 12bit
+ *  9 - adc channel 3 data 12bit
+ *  10 - adc channel 4 data 12bit
+ *  11 - adc channel 5 data 12bit
+ *  12 - adc channel 6 data 12bit
+*/
+
+int TSdata[13];
+
+bool spiDataReady, getADCData, firstLEDOn, secondLEDOn;
+
+int hex8bitToDec(int hex8bitValue) {
+
+    int first4bitToDec = ((hex8bitValue >> 4) * 10);
+    int last4bitToDec = (hex8bitValue & 0x0f);
+    return (first4bitToDec + last4bitToDec);
+}
+
+int getWord(int msbByte, int lsbByte) {
+    return ((msbByte << 8) + lsbByte);
+}
+
+void initLED() {
+    //set output
+    TRISBbits.TRISB6 = 0;
+    TRISCbits.TRISC9 = 0;
+    //disable led
+    PORTBbits.RB6 = 0;
+    PORTCbits.RC9 = 0;
+
+    firstLEDOn = false;
+    secondLEDOn = false;
+}
+
+void turnOnLED() {
+    //enable led
+    PORTBbits.RB6 = 1;
+    PORTCbits.RC9 = 1;
+}
+
+void turnOnFirstLED() {
+    PORTBbits.RB6 = 1;
+}
+
+void turnOnSecondLED() {
+    PORTCbits.RC9 = 1;
+}
+
+void turnOffFirstLED() {
+    PORTBbits.RB6 = 0;
+}
+
+void turnOffSecondLED() {
+    PORTCbits.RC9 = 0;
+}
+
+void toggleFirstLED() {
+    if (!firstLEDOn) {
+        turnOnFirstLED();
+        firstLEDOn = true;
+    }
+    else {
+        turnOffFirstLED();
+        firstLEDOn = false;
+    }
+}
+
+void toggleSecondLED() {
+    if (!secondLEDOn) {
+        turnOnSecondLED();
+        secondLEDOn = true;
+    }
+    else {
+        turnOffSecondLED();
+        secondLEDOn = false;
+    }
+}
+
+void initRTC(int year, int month_day, int weekday_hours, int minutes_seconds) {
+
+    //enable sosc and rtcc module
+    __builtin_write_OSCCONL(2);
+    __builtin_write_RTCWEN(); //enable rtc module
+
+    //RTCPWCbits.RTCCLK = 0; //00 = External Secondary Oscillator (SOSC)
+    RTCPWCbits.RTCCLK = 1; //01 = lprc
+    //RTCPWCbits.RTCOUT = 2; //10 = RTCC clock
+
+    // Disable RTCC module so we can set it up
+    RCFGCALbits.RTCEN = 0;
+
+    //RCFGCALbits.CAL = 0x80; //Maximum negative adjustment; subtracts 128 RTC clock pulses every 15 seconds
+
+    RCFGCALbits.RTCPTR = 3;
+
+    //RCFGCALbits.RTCOE = 1; //1 = RTCC output is enabled
+
+    RTCVAL = year;
+    RTCVAL = month_day;
+    RTCVAL = weekday_hours;
+    RTCVAL = minutes_seconds;
+
+    // Enable RTCC module
+    RCFGCALbits.RTCEN = 1;
+    // Disable RTCC Timer Access
+    RCFGCALbits.RTCWREN = 0;
+}
+
+void runRTC() { //enable modules to run rtc
+
+    //enable sosc and rtcc module
+    __builtin_write_OSCCONL(2);
+    __builtin_write_RTCWEN();
+
+    // Enable RTCC module
+    RCFGCALbits.RTCEN = 1;
+    // Disable RTCC Timer Access
+    RCFGCALbits.RTCWREN = 0;
+}
+
+//get time and set the first 6 dataptr with time values
+void getRTCTime(/*int *dataPtr*/)
+{
+        int year;
+        int month_day;
+        int weekday_hours;
+        int minutes_seconds;
+
+       // Wait for RTCSYNC bit to become ?0?
+	//while(RCFGCALbits.RTCSYNC==1);
+
+	// Read RTCC timekeeping register
+	RCFGCALbits.RTCPTR=3;
+
+	year = RTCVAL;
+        month_day = RTCVAL;
+        weekday_hours = RTCVAL;
+        minutes_seconds = RTCVAL;
+
+        TSdata[0] = hex8bitToDec(year & 0x00ff);              //year
+        TSdata[1] = hex8bitToDec(month_day >> 8);             //month
+        TSdata[2] = hex8bitToDec(month_day & 0x00ff);         //day
+        TSdata[3] = hex8bitToDec(weekday_hours & 0x00ff);     //hour
+        TSdata[4] = hex8bitToDec(minutes_seconds >> 8);       //minute
+        TSdata[5] = hex8bitToDec(minutes_seconds & 0x00ff);   //second
+
+        getADCData = true;
+}
+
+//config ADC
+void InitADCScanningMode() {
+
+    TRISAbits.TRISA0 = 1; //set an0 as input; v1
+    ANSAbits.ANSA0 = 1; //enable an0 input; v1
+
+    TRISAbits.TRISA1 = 1; //set an1 as input; v2
+    ANSAbits.ANSA1 = 1; //enable an1 input; v2
+
+    TRISBbits.TRISB0 = 1; //set an2 as input; v3
+    ANSBbits.ANSB0 = 1; //enable an2 input; v3
+
+    TRISBbits.TRISB1 = 1; //set an3 as input; c1
+    ANSBbits.ANSB1 = 1; //enable an3 input; c1
+
+    TRISBbits.TRISB2 = 1; //set an4 as input; c2
+    ANSBbits.ANSB2 = 1; //enable an4 input; c2
+
+    TRISBbits.TRISB3 = 1; //set an5 as input; temp1
+    ANSBbits.ANSB3 = 1;   //enable an5 input; temp1
+
+    TRISBbits.TRISB14 = 1; //set an6 as input; temp2
+    ANSBbits.ANSB14 = 1;   //enable an6 input; temp2
+
+    AD1CON1bits.FORM = 0;  // Data Output Format: Integer
+    AD1CON1bits.SSRC = 7;  // Internal counter ends sampling and starts conversion (auto-convert)
+    AD1CON1bits.ASAM = 1;  //Sampling begins immediately after last conversion completes. SAMP bit is auto-set.
+
+    AD1CON1bits.MODE12 = 1; //12bit mode
+
+    AD1CON2bits.SMPI = 6;   //Interrupts at the completion of conversion for every 7 sample/convert sequence
+    AD1CON2bits.CSCNA = 1;  //1 = Scan inputs, 0 = Do not scan inputs
+
+    AD1CON3bits.ADRC = 0;  //1 = A/D internal RC clock, 0 = Clock derived from system clock
+    AD1CON3bits.SAMC = 0x02;  //Auto-Sample Time bits = 2TAD = 2 * 16µs sec = 32µs ~ 31250 scans/sec
+    AD1CON3bits.ADCS = 0xff;  //A/D Conversion Clock Select bits = 256 * Tcy = 16µs
+
+    AD1CSSLbits.CSS0 = 1; //enable scanning of channel 0
+    AD1CSSLbits.CSS1 = 1; //enable scanning of channel 1
+    AD1CSSLbits.CSS2 = 1; //enable scanning of channel 2
+    AD1CSSLbits.CSS3 = 1; //enable scanning of channel 3
+    AD1CSSLbits.CSS4 = 1; //enable scanning of channel 4
+    AD1CSSLbits.CSS5 = 1; //enable scanning of channel 5
+    AD1CSSLbits.CSS6 = 1; //enable scanning of channel 6
+
+    IFS0bits.AD1IF = 0; // Clear the A/D interrupt flag bit
+    IEC0bits.AD1IE = 1; // Enable A/D interrupt
+
+    AD1CON1bits.ADON = 1; // Turn on the A/D converter
+}
+
+//config SPI2
+void SPI2Init()
+{
+    // Unlock Registers
+    __builtin_write_OSCCONL(OSCCON & 0xbf);
+
+    // Configure Input Functions **********************
+    // SDI2 = RP20, SCK2 = RP24, SS2 = RP22
+    RPINR22bits.SDI2R = 20;
+    RPINR22bits.SCK2R = 24;
+    RPINR23bits.SS2R = 22;
+
+    // Configure Output Functions *********************
+    RPOR10bits.RP21R = 10;	// assign RP21 for SDO2
+
+    // Lock Registers
+    __builtin_write_OSCCONL(OSCCON | 0x40);
+
+    SPI2CON1Lbits.SPIEN 	= 0;	// disable SPI port
+    SPI2CON1Lbits.SPISIDL 	= 0; 	// Continue module operation in Idle mode
+
+    SPI2BUFL 			= 0;   	// clear SPIL buffer
+    SPI2BUFH 			= 0;   	// clear SPIH buffer
+
+    IFS3bits.SPI2RXIF           = 0;	// clear receive interrupt flag
+    IEC3bits.SPI2RXIE           = 1;	// enable receive interrupt
+    //IPC14bits.SPI2RXIP          = 7;    //set spi2 receive interrupt event highest priority
+    IPC14bits.SPI2RXIP          = 1;    //set spi2 receive interrupt event lowest priority
+
+    SPI2CON1Lbits.DISSDO	= 0;	// SDOx pin is controlled by the module
+    SPI2CON1Lbits.MODE32 	= 0;	// disable 32bit mode
+    SPI2CON1Lbits.MODE16 	= 1;	// enable 16-bit mode
+
+    SPI2CON1Lbits.SMP		= 0;	// Input data is always sampled at the middle of data output time, regardless of the SMP bit setting.
+    SPI2CON1Lbits.CKP 		= 0;    // 0 = Idle state for clock is a low level; active state is a high level
+    SPI2CON1Lbits.CKE 		= 1;	// 1 = Transmit happens on transition from active clock state to Idle clock state
+    SPI2CON1Lbits.SSEN		= 1;	// SSx pin is used for Slave mode
+    SPI2CON1Lbits.MSTEN 	= 0; 	// 0 =  Slave mode
+
+    SPI2CON2L			= 0;	// 00000 = See the MODE<32,16> bits in SPIxCON1L<11:10>
+
+    SPI2CON1H                   = 0;
+
+    SPI2IMSKLbits.SPIROVEN      = 1;    //1 = SPIx Receive Overflow generates an interrupt event
+    SPI2IMSKLbits.SPIRBFEN      = 1;    //1 = SPIx receive buffer full generates an interrupt event
+
+    SPI2STATLbits.SPIROV        = 0;    //clear overflow bit
+
+    SPI2_SS_TRIS		= 1;	//set SS as input
+    SPI2_SS_PORT		= 1;	//enable ss port
+
+    SPI2CON1Lbits.SPIEN		= 1; 	// enable SPI port, clear status
+}
+
+//use this function to get real data
+int removeSPIDataMarking(int receiveData) {
+    return (receiveData & 0x7fff);
+}
+
+//use this function to add special marking so receiver knows its spi data
+int addSPIDataMarking(int sendData) {
+    return (sendData | 0x8000);
+}
+
+//get command type
+int getCommandType(int cleanData) {
+    return (cleanData >> 8);
+}
+
+//get actual 8bit data
+int getParseData(int cleanData) {
+    return (cleanData & 0xff);
+}
+
+//send out via spi with marking
+void sendSPIDataWithMarking(int SPIOutput) {
+    while (SPI2STATLbits.SPITBF); //wait til transfer ready
+
+    int dataOut = addSPIDataMarking(SPIOutput);
+    SPI2BUFH = 0;
+    SPI2BUFL = dataOut;  //send out data
+    spiDataReady = false;
+}
+
+int main(void) {
+
+   initLED();
+    //initRTC(0x14, 0x1230, 0x17, 0x3200);
+
+   toggleFirstLED();
+   toggleSecondLED();
+
+    runRTC();
+    InitADCScanningMode();
+
+    getADCData = false;
+
+    spiDataReady =  false;
+
+    SPI2Init();
+
+    spiCommand commandType;
+    int myData, rtcData[6], rtcIndex = 0;
+
+    while (1) {
+
+        //process spi data here
+        if (spiDataReady) {
+
+            commandType = getCommandType(removeSPIDataMarking(spiBufRL));
+            myData = getParseData(removeSPIDataMarking(spiBufRL));
+
+            //handles all spi set functions
+            if (commandType>=SET_RTC_YEAR && commandType<=SET_RTC_SECOND) {
+
+                sendSPIDataWithMarking(1);
+                //start counting when we get first rtc init variable
+                if (commandType==SET_RTC_YEAR) {
+                    rtcIndex = 0;
+                }
+
+                rtcData[rtcIndex++] = myData;
+                
+                if (rtcIndex==6) {
+                    initRTC(rtcData[SET_RTC_YEAR],
+                            (rtcData[SET_RTC_MONTH] << 8) + rtcData[SET_RTC_DAY],
+                            rtcData[SET_RTC_HOUR],
+                            (rtcData[SET_RTC_MINUTE] << 8) + rtcData[SET_RTC_SECOND]);
+                }
+            }
+
+            //handles all ts prepare
+            else if (commandType == PREPARE_TS) {
+                sendSPIDataWithMarking(1);
+                getRTCTime();
+                //toggleSecondLED();
+            }
+
+            //handles all spi get functions
+            else if (commandType>=GET_RTC_YEAR && commandType<=GET_ADC_DATA6) {
+                sendSPIDataWithMarking(TSdata[commandType-7]);
+                if (commandType==GET_ADC_DATA6) {
+                    toggleSecondLED();
+                }
+            }
+        }
+    }
+}
+
+//handles adc interrupts here
+void __attribute__((interrupt, no_auto_psv)) _ADC1Interrupt(void)
+{
+    if (getADCData) {
+        TSdata[6] = ADC1BUF0;       //v1
+        TSdata[7] = ADC1BUF1;       //v2
+        TSdata[8] = ADC1BUF2;       //v3
+        TSdata[9] = ADC1BUF3;       //c1
+        TSdata[10] = ADC1BUF4;      //c2
+        TSdata[11] = ADC1BUF5;      //t1
+        TSdata[12] = ADC1BUF6;      //t2
+        getADCData = false;
+        toggleFirstLED();
+    }
+
+    IFS0bits.AD1IF = 0;	 //Clear the ADC1 Interrupt Flag
+}
+
+//handles spi2 interrupts here
+void __attribute__((interrupt, no_auto_psv))  _SPI2RXInterrupt(void)
+{
+    if (SPI2STATLbits.SPIROV) {
+        SPI2STATLbits.SPIROV = 0; // error, clear overflow
+    }
+
+    else if (SPI2STATLbits.SPIRBF) {
+
+        spiBufRH = SPI2BUFH;
+        spiBufRL = SPI2BUFL;
+
+        //these are just padding bytes, just send back to sender with no processing
+        if (spiBufRL==0) {
+            
+            while (SPI2STATLbits.SPITBF); //wait til transfer ready
+            SPI2BUFH = spiBufRH;
+            SPI2BUFL = spiBufRL;  //send out data
+        }
+
+        //set data up so it can be processed later
+        else {
+            spiBufRL = SPI2BUFL;
+            spiDataReady = true;
+        }
+    }
+
+    IFS3bits.SPI2RXIF = 0; //clear the receive interrupt flag
+}
