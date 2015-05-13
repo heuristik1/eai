@@ -84,9 +84,9 @@ class PICReader(threading.Thread):
 
    # get voltage value
     def getVoltageReading(self, voltVal):
-        currentVal = (voltVal - GLB.vref) * 125
+        currentVal = (voltVal - GLB.vref)
         if voltVal<GLB.vref:
-            currentVal = (GLB.vref - voltVal) * -125
+            currentVal = (GLB.vref - voltVal)
         return VoltageVal
 
     # get last 6 digit of mac and use it as an id

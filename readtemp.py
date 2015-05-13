@@ -60,6 +60,7 @@ class ReadTemp(threading.Thread):
         for device, path in self.device_paths:
             lines = self.read_temp_raw(path)
             label = self.get_device_label(device)
+	    label = label.strip()
             if lines[0].strip()[-3:] == 'YES':
                 equals_pos = lines[1].find('t=')
                 if equals_pos != -1:
@@ -67,6 +68,7 @@ class ReadTemp(threading.Thread):
                     temp_c = float(temp_string) / 1000.0
                     readings[label] = temp_c
                     logging.info("Device %s: %f" % (label, temp_c))
+		    break
                 else:
                     logging.error("Unable to find temperature in device %s in file %s" % (device, path))
             else:

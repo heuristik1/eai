@@ -36,6 +36,7 @@ MIN_CALIBRATE_DECREMENT = .0001
 DECIMAL_ACCURACY =	4
 VOLTAGE_ADC_RATIO =     30.4118
 ADC_3_3V_RATIO =        0.0008058
+ADC_VOLT3vRATIO=     0.02450582844
 
 #constants for data index
 TS_DATA_YEAR = 0
@@ -114,7 +115,11 @@ debugType = DEBUG_DETAIL
 spi = spidev.SpiDev()
 
 #variable used to store vref
-vref = NULL
+vref = 0
 
 #variable used to store iref
-iref = NULL
+iref = 1.65
+
+#Calibration Mode Variables
+CALIBRATE_LOG = "/home/pi/calibrate"
+CAL_LOG_NAME="home/pi/calibrate/cal_log"

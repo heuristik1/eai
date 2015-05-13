@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import time, spidev, os, sys, math
-import globals as GLB 
+import globals as GLB
+from readtemp import ReadTemp
 import RPi.GPIO as GPIO ##Import GPIO library
 
 #collection of modules for general usage
@@ -14,7 +15,7 @@ def getSPIOutputByte(input):
    return data
 
 def get16bitSPIData(returnData):
-   return getWord(returnData[0], returnData[1])      
+   return getWord(returnData[0], returnData[1])
 
 def getWord(msb, lsb):
    return (msb*256+lsb)
@@ -58,9 +59,9 @@ def fahrenheitToCelcius(fahrenheightVal):
 
 #get current value
 def getCurrReading(voltVal):
-   currentVal = (voltVal - 1.65) * 125
-   if (voltVal<1.65):
-      currentVal = (1.65 - voltVal) * -125
+   currentVal = (voltVal - GLB.vref) * 125
+   if (voltVal<GLB.vref):
+      currentVal = (GLB.vref - voltVal) * -125
    return currentVal
 
 #get last 6 digit of mac and use it as an id
@@ -68,7 +69,7 @@ def getDeviceId():
     # Read MAC from file
     myMAC = open('/sys/class/net/eth0/address').read()
     macToken = myMAC.split(":")
-    uniqueId = macToken[3] + macToken[4] + macToken[5] 
+    uniqueId = macToken[3] + macToken[4] + macToken[5]
     return uniqueId.replace("\n", "")
 
 #use this function to reset pic24
@@ -119,11 +120,25 @@ def releaseGPIO():
    GPIO.cleanup()
    return
 
+#find vref
+def findVref():
+   myMacAddress = getDeviceId()
+   if (myMacAddress==GLB.DEVICE_ID_816874):
+      GLB.vref = GLB.MAC_ADDRESS_816874_VREF
+   elif (myMacAddress==GLB.DEVICE_ID_8daf22):
+      GLB.vref = GLB.MAC_ADDRESS_8daf22_VREF
+   elif (myMacAddress==GLB.DEVICE_ID_8ece5a):
+      GLB.vref = GLB.MAC_ADDRESS_8ece5a_VREF
+   else:
+      GLB.vref = GLB.MAC_ADDRESS_OTHER_VREF
+   return
+
 #set up rtc time in pic
 def setupPIC24RTC():
 
    #only init rtc if we never done it before
    if (not(os.path.isdir(GLB.RTC_FILE_PATH))):
+   #if (True):
 
       #init retry attempt counter
       retryAttempt = 0
@@ -141,33 +156,36 @@ def setupPIC24RTC():
 
             #no ack from pic that we set up rtc
             if (not SPIAck):
+               #try reset spi module on pi to fix problem
+               closeSPI()
+               initSPI()
                retryAttempt = retryAttempt + 1
                log(GLB.DEBUG_SAVE, "rtc variable " + str(i) + " set up failed, retry setup in .1 second, attemp #" + str(retryAttempt) + "\n")
                log(GLB.debugType, "rtc variable " + str(i) + " set up failed, retry setup in .1 second, attemp #" + str(retryAttempt) + "\n")
                time.sleep(GLB.SETUP_FAILED_DELAY)
 
                #reset pic if max number of retry attempts is reached
-            if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
+	       if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
 
-                  #reset system if max number of resets on pic still does not resolve issue 
-               if (currentPICResetCount>=GLB.MAX_PIC_RESET):
+                  #reset system if max number of resets on pic still does not resolve issue
+	          if (currentPICResetCount>=GLB.MAX_PIC_RESET):
                      log(GLB.debugType, "max number of pic reset for rtc setup reached, resetting system\n")
                      #catastrophic failure, reset entire board and exit program
                      resetSystem()
                      sys.exit()
 
                   #reset pic to see if we can fix the rtc setup issue
-               else:
+                  else:
                      log(GLB.debugType, "max number of retry attempt for rtc setup is reached, resetting pic\n")
                      resetPic24()
-                     time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
+   	             time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
                      retryAttempt = 0
                      currentPICResetCount = currentPICResetCount + 1
-            break
+               break
 
-            #rtc variable got set up correctly 
+            #rtc variable got set up correctly
             log(GLB.debugType, "rtc variable " + str(i) + " set up correctly\n")
-         
+
             #rtc setup is done
             if (i==GLB.SET_RTC_SECOND):
                log(GLB.debugType, "rtc set up successful\n")
@@ -178,6 +196,10 @@ def setupPIC24RTC():
 
 #collect time stamp data
 def collectTimeStampData():
+
+   #find vref
+   findVref()
+   log(GLB.debugType, "vref = " + str(GLB.vref) + "\n")
 
    #init retry attempt counter
    retryAttempt = 0
@@ -202,43 +224,46 @@ def collectTimeStampData():
       while (not timeStampDone):
          my16bitSPIData = get16bitSPIData(sendSPIDataWithMarking(createCommandData(GLB.PREPARE_TS, GLB.NULL)))
          SPIAck = removeSPIDataMarking(my16bitSPIData)
-         
+
          #no ack from pic that we set up time stamp
          if (not SPIAck):
+            #try reset spi module on pi to fix problem
+            closeSPI()
+            initSPI()
             retryAttempt = retryAttempt + 1
             log(GLB.DEBUG_SAVE, "prepare time stamp failed, retry setup in .1 second, attemp #" + str(retryAttempt) + "\n")
             log(GLB.debugType, "prepare time stamp failed, retry setup in .1 second, attemp #" + str(retryAttempt) + "\n")
             time.sleep(GLB.SETUP_FAILED_DELAY)
 
             #reset pic if max number of retry attempts is reached
-         if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
-               
-               #reset system if max number of resets on pic still does not resolve issue 
-            if (currentPICResetCount>=GLB.MAX_PIC_RESET):
+	    if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
+
+               #reset system if max number of resets on pic still does not resolve issue
+	       if (currentPICResetCount>=GLB.MAX_PIC_RESET):
                    log(GLB.debugType, "max number of pic reset  for ts collection reached, resetting system\n")
                    #catastrophic failure, reset entire board and exit program
                    resetSystem()
                    sys.exit()
-               
+
                #reset pic to see if we can fix the ts collection issue
-            else:
+               else:
                   log(GLB.debugType, "max number of retry attempt for ts collection is reached, resetting pic\n")
                   resetPic24()
-                  time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2) 
-                  retryAttempt = 0
+	          time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
+	          retryAttempt = 0
                   currentPICResetCount = currentPICResetCount + 1
-           
+
          else:
             log(GLB.debugType, "prepare time stamp success\n")
             timeStampDone = True
             time.sleep(GLB.PIC_SETUP_DELAY)
-            retryAttempt = 0
+	    retryAttempt = 0
 
       #get time stamp data in pic
       TSdata = []
 
       #get a new file name in the beginning of the data collection cycle
-      if (dataCount == 0):  
+      if (dataCount == 0):
          currentFileName = getNewFileName()
          #for debugging
          curentDebugFileName = getDebugNewFileName()
@@ -246,8 +271,8 @@ def collectTimeStampData():
       for i in range (GLB.GET_RTC_YEAR, GLB.GET_ADC_DATA6+1):
          my16bitSPIData = get16bitSPIData(sendSPIDataWithMarking(createCommandData(i, GLB.NULL)))
          SPIData = removeSPIDataMarking(my16bitSPIData)
-         TSdata.append(SPIData)
-         
+	 TSdata.append(SPIData)
+
       #convert adc raw data to meaningful data
       picTime = str(TSdata[GLB.TS_DATA_MONTH]) + "/" + \
          str(TSdata[GLB.TS_DATA_DAY]) + "/" + \
@@ -255,13 +280,26 @@ def collectTimeStampData():
          str(TSdata[GLB.TS_DATA_HOUR]) + ":" + \
          str(TSdata[GLB.TS_DATA_MINUTE]) + ":" + \
          str(TSdata[GLB.TS_DATA_SECOND])
+      picTime = time.strftime("%Y-%m-%d %H:%M:%S")
+      rtemp = ReadTemp()
+      tempc = rtemp.read_temp()
       v1Reading = str(round(TSdata[GLB.TS_DATA_V1] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
       v2Reading = str(round(TSdata[GLB.TS_DATA_V2] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
       v3Reading = str(round(TSdata[GLB.TS_DATA_V3] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
+      """
       t1Reading = str(round(getTempReading(TSdata[GLB.TS_DATA_T1] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
       t2Reading = str(round(getTempReading(TSdata[GLB.TS_DATA_T2] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
-      c1Reading = str(round(getCurrReading(TSdata[GLB.TS_DATA_C1] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))      
-      c2Reading = str(round(getCurrReading(TSdata[GLB.TS_DATA_C2] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))      
+      """
+      t1Reading = ""
+      t2Reading = ""
+      try:
+          t1Reading = str(round(tempc["TR1"], GLB.DECIMAL_ACCURACY))
+          t2Reading = str(round(tempc["TR2"], GLB.DECIMAL_ACCURACY))
+      except Exception:
+          log(GLB.debugType,"Unable to gather temperature reading from TR1,TR2\n")
+
+      c1Reading = str(round(getCurrReading(TSdata[GLB.TS_DATA_C1] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
+      c2Reading = str(round(getCurrReading(TSdata[GLB.TS_DATA_C2] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
 
       collectedData = picTime + "," + getDeviceId() + "," + \
             v1Reading + "," + v2Reading + "," + v3Reading + "," + \
@@ -298,7 +336,7 @@ def collectTimeStampData():
                if (currentSecond==0):
                   currentSecond = 60
                #got time gap differential not equal to one second, speed up waiting time
-               if (currentSecond-lastSecond!=1):   
+               if (currentSecond-lastSecond!=1):
                   log(GLB.debugType, "time differential = " + str(currentSecond-lastSecond))
                   selfCalibratedWaitTime = selfCalibratedWaitTime - (GLB.MIN_CALIBRATE_DECREMENT*1000)
                   log(GLB.debugType, "speeding up calibration time, new wait time = " + str(selfCalibratedWaitTime))
@@ -309,20 +347,20 @@ def collectTimeStampData():
 
          lastSecond = (currentSecond%60)
 
-         if (not identicalSecondFound): 
-      
-            dataCount  = dataCount + 1
-     
-            #store data  
-            storeToFile(currentFileName, collectedData)
-            
-            #for debugging purposes
-            storeToFile(curentDebugFileName, collectedData) 
+         if (not identicalSecondFound):
 
-            #reset counter            
+            dataCount  = dataCount + 1
+
+            #store data
+            storeToFile(currentFileName, collectedData)
+
+            #for debugging purposes
+            #storeToFile(curentDebugFileName, collectedData)
+
+            #reset counter
             if (dataCount>=GLB.TS_DURATION):
-               dataCount = 0 
-      
+               dataCount = 0
+
             log(GLB.debugType, "[TIME] " + picTime)
             log(GLB.debugType, "[ID] " + getDeviceId())
             log(GLB.debugType, "[V1] " + v1Reading)
@@ -338,9 +376,30 @@ def collectTimeStampData():
          time.sleep(selfCalibratedWaitTime)
 
       else:
-         log(GLB.DEBUG_SAVE, "Error, data out of range\n")
-         log(GLB.debugType, "Error, data out of range\n")
-   
+
+         #try reset spi module on pi to fix problem
+         closeSPI()
+         initSPI()
+
+         errSensor = ""
+         if (not validVoltage1Range):
+	    errSensor = "voltage1 "
+         if (not validVoltage2Range):
+            errSensor = errSensor + "voltage2 "
+         if (not validVoltage3Range):
+            errSensor = errSensor + "voltage3 "
+         if (not validCurrent1Range):
+            errSensor = errSensor + "current1 "
+         if (not validCurrent2Range):
+            errSensor = errSensor + "current2 "
+         if (not validTemperature1Range):
+            errSensor = errSensor + "temperature1 "
+         if (not validTemperature2Range):
+            errSensor = errSensor + "temperature2 "
+
+         log(GLB.DEBUG_SAVE, "Error, " + errSensor + "data out of range\n")
+         log(GLB.debugType, "Error, " + errSensor + "data out of range\n")
+
    return
 
 #store info into file
@@ -355,7 +414,7 @@ def createLogFilePath():
    #if directory battlog does not exist, create one
    if (not(os.path.isdir(GLB.LOG_FILE_PATH))):
         os.mkdir(GLB.LOG_FILE_PATH)
-   return  
+   return
 
 #create rtc log file path if it does not exist
 def createRTCFilePath():
@@ -410,5 +469,4 @@ def verfiyDataRange(dataType, value):
       if (value>=GLB.MIN_TEMP and value<=GLB.MAX_TEMP):
          goodRange = True
    return goodRange
-   
 

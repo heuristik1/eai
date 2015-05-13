@@ -164,21 +164,21 @@ def setupPIC24RTC():
                log(GLB.debugType, "rtc variable " + str(i) + " set up failed, retry setup in .1 second, attemp #" + str(retryAttempt) + "\n")
                time.sleep(GLB.SETUP_FAILED_DELAY)
 
-               #reset pic if max number of retry attempts is reached
-	       if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
-
-                  #reset system if max number of resets on pic still does not resolve issue
-	          if (currentPICResetCount>=GLB.MAX_PIC_RESET):
-                     log(GLB.debugType, "max number of pic reset for rtc setup reached, resetting system\n")
+            #reset pic if max number of retry attempts is reached
+               if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
+           
+                     #reset system if max number of resets on pic still does not resolve issue
+                     if (currentPICResetCount>=GLB.MAX_PIC_RESET):
+                       log(GLB.debugType, "max number of pic reset for rtc setup reached, resetting system\n")
                      #catastrophic failure, reset entire board and exit program
                      resetSystem()
                      sys.exit()
 
                   #reset pic to see if we can fix the rtc setup issue
-                  else:
+               else:
                      log(GLB.debugType, "max number of retry attempt for rtc setup is reached, resetting pic\n")
                      resetPic24()
-   	             time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
+                     time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
                      retryAttempt = 0
                      currentPICResetCount = currentPICResetCount + 1
                break
@@ -236,28 +236,28 @@ def collectTimeStampData():
             time.sleep(GLB.SETUP_FAILED_DELAY)
 
             #reset pic if max number of retry attempts is reached
-	    if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
+	#    if (retryAttempt>=GLB.MAX_RETRY_ATTEMPT):
 
                #reset system if max number of resets on pic still does not resolve issue
-	       if (currentPICResetCount>=GLB.MAX_PIC_RESET):
-                   log(GLB.debugType, "max number of pic reset  for ts collection reached, resetting system\n")
+	  #     if (currentPICResetCount>=GLB.MAX_PIC_RESET):
+                  # log(GLB.debugType, "max number of pic reset  for ts collection reached, resetting system\n")
                    #catastrophic failure, reset entire board and exit program
-                   resetSystem()
-                   sys.exit()
+                 #  resetSystem()
+                  # sys.exit()
 
                #reset pic to see if we can fix the ts collection issue
-               else:
-                  log(GLB.debugType, "max number of retry attempt for ts collection is reached, resetting pic\n")
-                  resetPic24()
-	          time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
-	          retryAttempt = 0
-                  currentPICResetCount = currentPICResetCount + 1
+               #else:
+                #  log(GLB.debugType, "max number of retry attempt for ts collection is reached, resetting pic\n")
+                 # resetPic24()
+	 #         time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
+	 #         retryAttempt = 0
+                 # currentPICResetCount = currentPICResetCount + 1
 
          else:
             log(GLB.debugType, "prepare time stamp success\n")
             timeStampDone = True
             time.sleep(GLB.PIC_SETUP_DELAY)
-	    retryAttempt = 0
+            retryAttempt = 0
 
       #get time stamp data in pic
       TSdata = []
@@ -271,7 +271,7 @@ def collectTimeStampData():
       for i in range (GLB.GET_RTC_YEAR, GLB.GET_ADC_DATA6+1):
          my16bitSPIData = get16bitSPIData(sendSPIDataWithMarking(createCommandData(i, GLB.NULL)))
          SPIData = removeSPIDataMarking(my16bitSPIData)
-	 TSdata.append(SPIData)
+         TSdata.append(SPIData)
 
       #convert adc raw data to meaningful data
       picTime = str(TSdata[GLB.TS_DATA_MONTH]) + "/" + \
@@ -283,9 +283,9 @@ def collectTimeStampData():
       picTime = time.strftime("%Y-%m-%d %H:%M:%S")
       rtemp = ReadTemp()
       tempc = rtemp.read_temp()
-      v1Reading = str(round(TSdata[GLB.TS_DATA_V1] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
-      v2Reading = str(round(TSdata[GLB.TS_DATA_V2] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
-      v3Reading = str(round(TSdata[GLB.TS_DATA_V3] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
+      v1Reading = str(round(self.getVoltageReading(TSdata[GLB.TS_DATA_V1] * GLB.ADC_VOLT3vRATIO, GLB.DECIMAL_ACCURACY)))
+      v2Reading = str(round(self.getVoltageReading(TSdata[GLB.TS_DATA_V2] * GLB.ADC_VOLT3vRATIO, GLB.DECIMAL_ACCURACY)))
+      v3Reading = str(round(self.getVoltageReading(TSdata[GLB.TS_DATA_V3] * GLB.ADC_VOLT3vRATIO, GLB.DECIMAL_ACCURACY)))
       """
       t1Reading = str(round(getTempReading(TSdata[GLB.TS_DATA_T1] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
       t2Reading = str(round(getTempReading(TSdata[GLB.TS_DATA_T2] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
@@ -372,8 +372,8 @@ def collectTimeStampData():
             log(GLB.debugType, "[T2] " + t2Reading + "\n")
 
          #set delay for calibrated time
-         #time.sleep(GLB.TS_COLLECTION_DELAY)
-         time.sleep(selfCalibratedWaitTime)
+         time.sleep(GLB.TS_COLLECTION_DELAY)
+         #time.sleep(selfCalibratedWaitTime)
 
       else:
 
@@ -383,7 +383,7 @@ def collectTimeStampData():
 
          errSensor = ""
          if (not validVoltage1Range):
-	    errSensor = "voltage1 "
+            errSensor = "voltage1 "
          if (not validVoltage2Range):
             errSensor = errSensor + "voltage2 "
          if (not validVoltage3Range):
@@ -447,11 +447,11 @@ def getDebugNewFileName():
    return (GLB.DEBUG_FILE_NAME+getTimeString()+".csv")
 
 #use this function to print or save debug msg
-def log(logType, msg):
-   if (logType==GLB.DEBUG_DETAIL):
-      print msg
-   elif (logType==GLB.DEBUG_SAVE):
-      storeToFile(GLB.DEBUG_LOG_FILE_NAME, getFormatTimeString() + " " + msg)
+#def log(logType, msg):
+  # if (logType==GLB.DEBUG_DETAIL):
+   #   print msg
+  # elif (logType==GLB.DEBUG_SAVE):
+   #   storeToFile(GLB.DEBUG_LOG_FILE_NAME, getFormatTimeString() + " " + msg)
 
 #use this function to filter out of range data
 def verfiyDataRange(dataType, value):
