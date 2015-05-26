@@ -1,13 +1,22 @@
 import globals as GLB
 import time, spidev, os, sys, math
 from readtemp import ReadTemp
+from datetime import datetime
 import RPi.GPIO as GPIO # Import GPIO library
 import threading
+import time
 
 
 class PICReader(threading.Thread):
 
     stop = None
+    currentSecond = None
+    newSecond = None
+    v1reference = 0
+    v2reference = 0
+    v3reference = 0
+    c1reference = 0
+    c2reference = 0
 
     def __init__(self):
         super(PICReader, self).__init__()
@@ -16,9 +25,17 @@ class PICReader(threading.Thread):
         self.createLogFilePath()
         self.initSPI()
         self.setupPIC24RTC()
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(GLB.CALIBRATION_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
     def run(self):
-        self.collectTimeStampData()
+##        if GPIO.input(GLB.CALIBRATION_PIN):
+ ##           self.log(GLB.debugType, "Calibration initiating...")
+  ##          self.calibrate()
+   ##         self.log(GLB.debugType, "Calibration complete")
+    ##    else:
+          self.initialize_calibrated_values()
+          self.collectTimeStampData()
 
     def join(self, timeout=None):
         self.stop.set()
@@ -63,32 +80,30 @@ class PICReader(threading.Thread):
     def createCommandData(self, commandType, rawData):
         return (commandType << 8) + rawData
 
-    #get approximate values of temperature reading based on equation
-    # def getTempReading(self, voltVal):
-        # fahrenheitVal = (-4.71728 * voltVal**7) + (57.51 * voltVal**6) + \
-          # (-290.91 * voltVal**5) + (789.2 * voltVal**4) + \
-          # (-1247.4 * voltVal**3) + (1176.45 * voltVal**2) + \
-          # (-704.13 * voltVal) + 343.992
-        # celciusVal = self.fahrenheitToCelcius(fahrenheitVal)
-        # return celciusVal
-
-   #convert fahrenheit to celcius
-    # def fahrenheitToCelcius(self, fahrenheightVal):
-        # return (fahrenheightVal-32.0) * (5.0/9.0)
+    def getPinReading(self, pin):
+        my16bitSPIData = self.get16bitSPIData(self.sendSPIDataWithMarking(self.createCommandData(pin, GLB.NULL)))
+        return self.removeSPIDataMarking(my16bitSPIData)
 
     # get current value
-    def getCurrReading(self, voltVal):
-        currentVal = (voltVal - GLB.iref) * 125
-        if (voltVal<GLB.iref):
-            currentVal = (GLB.iref - voltVal) * -125
-        return currentVal
+    def getCurrReading(self, voltVal, multiplier):
+        voltVal *= multiplier
+        if voltVal < GLB.iref:
+            currentVal = (GLB.iref - voltVal) * -62.5
+        else:
+            currentVal = (voltVal - GLB.iref) * 62.5
+        return round(currentVal, GLB.DECIMAL_ACCURACY)
 
-   # get voltage value
-    def getVoltageReading(self, voltVal):
-        voltageVal = (voltVal - GLB.vref)
-        if (voltVal<GLB.vref):
-         voltageVal = (GLB.vref - voltVal)
-        return voltageVal
+    # get voltage value
+    def getVoltageReading(self, voltVal, multiplier):
+        voltVal *= multiplier
+        if voltVal < GLB.vref:
+            voltageVal = (GLB.vref - voltVal)
+        else:
+            voltageVal = voltVal - GLB.vref
+        return round(voltageVal, GLB.DECIMAL_ACCURACY)
+
+    def getTempReading(self, tempVal):
+        return round(tempVal, GLB.DECIMAL_ACCURACY)
 
     # get last 6 digit of mac and use it as an id
     def getDeviceId(self):
@@ -146,168 +161,135 @@ class PICReader(threading.Thread):
         GPIO.cleanup()
         return
 
-    # find vref
-   # def findVref(self):
-        # myMacAddress = self.getDeviceId()
-        # if myMacAddress == GLB.DEVICE_ID_816874:
-            # GLB.vref = GLB.MAC_ADDRESS_816874_VREF
-        # elif myMacAddress == GLB.DEVICE_ID_8daf22:
-            # GLB.vref = GLB.MAC_ADDRESS_8daf22_VREF
-        # elif myMacAddress == GLB.DEVICE_ID_8ece5a:
-            # GLB.vref = GLB.MAC_ADDRESS_8ece5a_VREF
-        # else:
-            # GLB.vref = GLB.MAC_ADDRESS_OTHER_VREF
-   #  GLB.vref
-    #    return
-		
-    #find iref
-    # def findIref (self):
-     	
+    def calibrate(self):
+        tsData = []
+
+        for i in range(GLB.GET_RTC_YEAR, GLB.GET_ADC_DATA6+1):
+            data = self.getPinReading(i)
+            tsData.append(data)
+
+        v1Reading = GLB.REFERENCE_VOLTAGE - self.getVoltageReading(tsData[GLB.TS_DATA_V1], GLB.ADC_VOLT3vRATIO)
+        v2Reading = GLB.REFERENCE_VOLTAGE - self.getVoltageReading(tsData[GLB.TS_DATA_V2], GLB.ADC_VOLT3vRATIO)
+        v3Reading = GLB.REFERENCE_VOLTAGE - self.getVoltageReading(tsData[GLB.TS_DATA_V3], GLB.ADC_VOLT3vRATIO)
+        c1Reading = GLB.REFERENCE_CURRENT - self.getCurrReading(tsData[GLB.TS_DATA_C1], GLB.ADC_3_3V_RATIO)
+        c2Reading = GLB.REFERENCE_CURRENT - self.getCurrReading(tsData[GLB.TS_DATA_C2], GLB.ADC_3_3V_RATIO)
+        collectedData = str(v1Reading) + "," + str(v2Reading) + "," + str(v3Reading) + "," + \
+            str(c1Reading) + "," + str(c2Reading) + "\n"
+        self.storeToFile(GLB.CALIB_FILE_NAME, collectedData, False)
+
+    def initialize_calibrated_values(self):
+        try:
+            with open(GLB.CALIB_FILE_NAME) as cfile:
+                line = cfile.readline()
+                cfile.close()
+                cdata = line.split(",", 1)
+                if len(cdata) == 5:
+                    self.v1reference = cdata[0]
+                    self.v2reference = cdata[1]
+                    self.v3reference = cdata[2]
+                    self.c1reference = cdata[3]
+                    self.c2reference = cdata[4]
+        except Exception, e:
+            self.log(GLB.debugType, "Exception while reading calibration file %s:%s" % (GLB.CALIB_FILE_NAME, e))
 
     # collect time stamp data
     def collectTimeStampData(self):
-	
-        # find iref
-        self.log(GLB.debugType, "iref = " + str(GLB.iref) + "\n")
-       
-        # find vref
-        # self.findVref()
-        self.log(GLB.debugType, "vref = " + str(GLB.vref) + "\n")
-     
+
+        dataCount=0
+        currentFileName=GLB.LOG_FILE_NAME
+        rtemp = ReadTemp()
+
         # scan pic every 1 sec for new adc data until stopped
         while not self.stop.isSet():
-            # get time stamp data in pic
-            TSdata = []
-            dataCount=0
-            currentFileName=GLB.LOG_FILE_NAME
-            lastsecond=-1
-            
 
             # get a new file name in the beginning of the data collection cycle
             if dataCount == 0:
                 currentFileName = self.getNewFileName()
-                #for debugging
-                curentDebugFileName = self.getDebugNewFileName()
+
+            now = datetime.now()
+            picTime = now.strftime("%Y-%m-%d %H:%M:%S")
+            self.currentSecond = now.second
+
+            tsData = []
 
             for i in range(GLB.GET_RTC_YEAR, GLB.GET_ADC_DATA6+1):
-                my16bitSPIData = self.get16bitSPIData(self.sendSPIDataWithMarking(self.createCommandData(i, GLB.NULL)))
-                SPIData = self.removeSPIDataMarking(my16bitSPIData)
-                TSdata.append(SPIData)
+                data = self.getPinReading(i)
+                tsData.append(data)
 
-            picTime = time.strftime("%Y-%m-%d %H:%M:%S")
-            rtemp = ReadTemp()
-            tempc = rtemp.read_temp()
-            print tempc
-            self.log(GLB.debugType, str(TSdata[GLB.TS_DATA_V1] ))
-            #self.log(GLB.debugType, str("[V2] " + str(TSdata[GLB.TS_DATA_V2]+"\n"))
-            #self.log(GLB.debugType, "[V3] " + str(TSdata[GLB.TS_DATA_V3]+"\n"))
-            #self.log(GLB.debugType, "[C1] " + str(TSdata[GLB.TS_DATA_C1]+"\n"))
-            #self.log(GLB.debugType, "[C2] " + str(TSdata[GLB.TS_DATA_C2]+"\n"))
-            #self.log(GLB.debugType, "[T1] " + t1Reading)
-            #self.log(GLB.debugType, "[T2] " + t2Reading + "\n")
-
-            v1Reading = str(round(TSdata[GLB.TS_DATA_V1] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
-            v2Reading = str(round(TSdata[GLB.TS_DATA_V2] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
-            v3Reading = str(round(TSdata[GLB.TS_DATA_V3] * GLB.ADC_3_3V_RATIO * GLB.VOLTAGE_ADC_RATIO, GLB.DECIMAL_ACCURACY))
-            v1Reading = str(round(self.getVoltageReading(TSdata[GLB.TS_DATA_V1] * GLB.ADC_VOLT3vRATIO), GLB.DECIMAL_ACCURACY))
-        #   self.log (round(TSdata[GLB.TS_DATA_V1]))
-            v2Reading = str(round(self.getVoltageReading(TSdata[GLB.TS_DATA_V2] * GLB.ADC_VOLT3vRATIO), GLB.DECIMAL_ACCURACY))
-  #     self.log (voltageVal)
-            v3Reading = str(round(self.getVoltageReading(TSdata[GLB.TS_DATA_V3] * GLB.ADC_VOLT3vRATIO), GLB.DECIMAL_ACCURACY))
-    #        self.log (voltageVal)
+            v1Reading = self.getVoltageReading(tsData[GLB.TS_DATA_V1], GLB.ADC_VOLT3vRATIO) + self.v1reference
+            v2Reading = self.getVoltageReading(tsData[GLB.TS_DATA_V2], GLB.ADC_VOLT3vRATIO) + self.v2reference
+            v3Reading = self.getVoltageReading(tsData[GLB.TS_DATA_V3], GLB.ADC_VOLT3vRATIO) + self.v3reference
+            c1Reading = self.getCurrReading(tsData[GLB.TS_DATA_C1], GLB.ADC_3_3V_RATIO) + self.c1reference
+            c2Reading = self.getCurrReading(tsData[GLB.TS_DATA_C2], GLB.ADC_3_3V_RATIO) + self.c2reference
             t1Reading = ""
             t2Reading = ""
+            tempc = rtemp.read_temp()
             if "TR1" in tempc:
-                t1Reading = str(round(tempc["TR1"], GLB.DECIMAL_ACCURACY))
+                t1Reading = self.getTempReading(tempc["TR1"])
             if "TR2" in tempc:
-                t2Reading = str(round(tempc["TR2"], GLB.DECIMAL_ACCURACY))
-            print TSdata[GLB.TS_DATA_C1]
-            c1Reading = str(round(self.getCurrReading(TSdata[GLB.TS_DATA_C1] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
-        #    self.log (currentVal)
-            c2Reading = str(round(self.getCurrReading(TSdata[GLB.TS_DATA_C2] * GLB.ADC_3_3V_RATIO), GLB.DECIMAL_ACCURACY))
-      #      self.log (currentVal)
+                t2Reading = self.getTempReading(tempc["TR2"])
+
+            # discard duplicates
+            if self.is_dup():
+                continue
 
             collectedData = picTime + "," + self.getDeviceId() + "," + \
-            v1Reading + "," + v2Reading + "," + v3Reading + "," + \
-            c1Reading + "," + c2Reading + "," + \
-            t1Reading + "," + t2Reading + "\n"
+            str(v1Reading) + "," + str(v2Reading) + "," + str(v3Reading) + "," + \
+            str(c1Reading) + "," + str(c2Reading) + "," + \
+            str(t1Reading) + "," + str(t2Reading) + "\n"
 
             # check if data pass range test
-          #  validVoltage1Range = self.verfiyDataRange(GLB.DATA_TYPE_VOLTAGE, float(v1Reading))
+            #validVoltage1Range = self.verfiyDataRange(GLB.DATA_TYPE_VOLTAGE, float(v1Reading))
             #validVoltage2Range = self.verfiyDataRange(GLB.DATA_TYPE_VOLTAGE, float(v2Reading))
             #validVoltage3Range = self.verfiyDataRange(GLB.DATA_TYPE_VOLTAGE, float(v3Reading))
-            #validCurrent1Range = self.verfiyDataRange(GLB.DATA_TYPE_CURRENT, float(c1Reading ))
-            #validCurrent2Range = self.verfiyDataRange(GLB.DATA_TYPE_CURRENT, float(c2Reading ))
+            #validCurrent1Range = self.verfiyDataRange(GLB.DATA_TYPE_CURRENT, float(c1Reading))
+            #validCurrent2Range = self.verfiyDataRange(GLB.DATA_TYPE_CURRENT, float(c2Reading))
             #validTemperature1Range = self.verfiyDataRange(GLB.DATA_TYPE_TEMPERATURE, float(t1Reading))
             #validTemperature2Range = self.verfiyDataRange(GLB.DATA_TYPE_TEMPERATURE, float(t2Reading))
 
-         #   validAllRange = (validVoltage1Range and validVoltage2Range and validVoltage3Range and \
-          #  validCurrent1Range and validCurrent2Range and \
-          #  validTemperature1Range and validTemperature2Range)
+            #validAllRange = (validVoltage1Range and validVoltage2Range and validVoltage3Range and \
+            #validCurrent1Range and validCurrent2Range and \
+            #validTemperature1Range and validTemperature2Range)
 
             # only store values if all range pass test
-          #  if validAllRange:
-            currentSecond = int(TSdata[GLB.TS_DATA_SECOND])
-            identicalSecondFound = False
+            #if validAllRange:
 
+            # store data
+            self.storeToFile(currentFileName, collectedData)
 
-            if not identicalSecondFound:
-                dataCount += 1
+            self.log(GLB.debugType, "[TIME] " + picTime)
+            self.log(GLB.debugType, "[ID] " + self.getDeviceId())
+            self.log(GLB.debugType, "[V1] " + str(v1Reading))
+            self.log(GLB.debugType, "[V2] " + str(v2Reading))
+            self.log(GLB.debugType, "[V3] " + str(v3Reading))
+            self.log(GLB.debugType, "[C1] " + str(c1Reading))
+            self.log(GLB.debugType, "[C2] " + str(c2Reading))
+            self.log(GLB.debugType, "[T1] " + str(t1Reading))
+            self.log(GLB.debugType, "[T2] " + str(t2Reading) + "\n")
 
-                # store data
-                self.storeToFile(currentFileName, collectedData)
+            #else:
+             #   self.log(GLB.debugType, "Invalid ranges detected")
 
-                #for debugging purposes
-                #storeToFile(curentDebugFileName, collectedData)
-
-                # reset counter
-                if dataCount >= GLB.TS_DURATION:
-                    dataCount = 0
-
-                self.log(GLB.debugType, "[TIME] " + picTime)
-                self.log(GLB.debugType, "[ID] " + self.getDeviceId())
-                self.log(GLB.debugType, "[V1] " + v1Reading)
-                self.log(GLB.debugType, "[V2] " + v2Reading)
-                self.log(GLB.debugType, "[V3] " + v3Reading)
-                self.log(GLB.debugType, "[C1] " + c1Reading)
-                self.log(GLB.debugType, "[C2] " + c2Reading)
-                self.log(GLB.debugType, "[T1] " + t1Reading)
-                self.log(GLB.debugType, "[T2] " + t2Reading + "\n")
-
-
-                # set delay for calibrated time
-                # time.sleep(GLB.TS_COLLECTION_DELAY)
-                time.sleep(1)
-
-            else:
-                # try reset spi module on pi to fix problem
-                self.closeSPI()
-                self.initSPI()
-
-
-                errSensor = ""
-                if not validVoltage1Range:
-                    errSensor = "voltage1 "
-                if not validVoltage2Range:
-                    errSensor = errSensor + "voltage2 "
-                if not validVoltage3Range:
-                    errSensor = errSensor + "voltage3 "
-                if not validCurrent1Range:
-                    errSensor = errSensor + "current1 "
-                if not validCurrent2Range:
-                    errSensor = errSensor + "current2 "
-                if not validTemperature1Range:
-                    errSensor = errSensor + "temperature1 "
-                if not validTemperature2Range:
-                    errSensor = errSensor + "temperature2 "
-
-                self.log(GLB.DEBUG_SAVE, "Error, " + errSensor + "data out of range\n")
-                self.log(GLB.debugType, "Error, " + errSensor + "data out of range\n")
+            dataCount += 1
+            if dataCount > GLB.TS_DURATION:
+                dataCount = 0
         return
 
+    def is_dup(self):
+        dup = False
+        self.newSecond = datetime.now().second
+        if self.currentSecond == self.newSecond:
+            dup = True
+            self.log(GLB.debugType, "Duplicate reading found at second " + str(self.newSecond) + "\n")
+        self.currentSecond = self.newSecond
+        return dup
+
     # store info into file
-    def storeToFile(self, fileName, data):
-        myFileOutput = open(fileName, "a")
+    def storeToFile(self, fileName, data, append=True):
+        if append:
+            myFileOutput = open(fileName, "a")
+        else:
+            myFileOutput = open(fileName, "w")
         myFileOutput.write(data)
         myFileOutput.close()
         return
@@ -375,6 +357,12 @@ class PICReader(threading.Thread):
 
     # set up rtc time in pic
     def setupPIC24RTC(self):
+
+        # init retry attempt counter
+        retryAttempt = 0
+
+        currentPICResetCount = 0
+
         # get sys time in hex
         sysTimeHex = self.getSystemTimeInHex()
         rtcSetupDone = False
@@ -383,17 +371,38 @@ class PICReader(threading.Thread):
             for i in range(GLB.SET_RTC_YEAR, GLB.SET_RTC_SECOND+1):
                 my16bitSPIData = self.get16bitSPIData(self.sendSPIDataWithMarking(self.createCommandData(i, sysTimeHex[i])))
                 SPIAck = self.removeSPIDataMarking(my16bitSPIData)
-                if not SPIAck:
-                    if GLB.debugType == GLB.DEBUG_DETAIL:
-                        print "rtc variable " + str(i) + " set up failed, retry rtc setup in 1 second\n"
-                        time.sleep(GLB.SETUP_FAILED_DELAY)
-                        break
-                if GLB.debugType == GLB.DEBUG_DETAIL:
-                    print "rtc variable " + str(i) + " set up correctly"
-                if i == GLB.SET_RTC_SECOND:
-                    if GLB.debugType == GLB.DEBUG_DETAIL:
-                        print "rtc set up successful\n"
-                rtcSetupDone = True
-                time.sleep(GLB.PIC_SETUP_DELAY)
-        return
 
+                # no ack from pic that we set up rtc
+                if not SPIAck:
+                    retryAttempt = retryAttempt + 1
+                    self.log(GLB.debugType, "rtc variable " + str(i) + " set up failed, retry setup in 1 second, attemp #" + str(retryAttempt) + "\n")
+                    time.sleep(GLB.SETUP_FAILED_DELAY)
+
+                    # reset pic if max number of retry attempts is reached
+                    if retryAttempt>=GLB.MAX_RETRY_ATTEMPT:
+
+                        # reset system if max number of resets on pic still does not resolve issue
+                        if (currentPICResetCount>=GLB.MAX_PIC_RESET):
+                            self.log(GLB.debugType, "max number of pic reset for rtc setup reached, resetting system\n")
+                            # catastrophic failure, reset entire board and exit program
+                            self.resetSystem()
+                            sys.exit()
+
+                        # reset pic to see if we can fix the rtc setup issue
+                        else:
+                            self.log(GLB.debugType, "max number of retry attempt for rtc setup is reached, resetting pic\n")
+                            self.resetPic24()
+                            time.sleep(GLB.NRESET_PIC24_HOLD_TIME*2)
+                            retryAttempt = 0
+                            currentPICResetCount = currentPICResetCount + 1
+                    break
+
+                # rtc variable got set up correctly
+                self.log(GLB.debugType, "rtc variable " + str(i) + " set up correctly\n")
+
+                # rtc setup is done
+                if i == GLB.SET_RTC_SECOND:
+                    self.log(GLB.debugType, "rtc set up successful\n")
+                    rtcSetupDone = True
+                    time.sleep(GLB.PIC_SETUP_DELAY)
+        return
